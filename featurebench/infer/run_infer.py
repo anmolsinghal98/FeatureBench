@@ -175,6 +175,49 @@ def _get_primary_f2p_test_path(instance: TaskInstance) -> Optional[str]:
     return None
 
 
+SPEC_KIT_PREAMBLE = """\
+You are solving this task using a spec-driven development workflow inspired by GitHub Spec Kit.
+Before writing any implementation code, you MUST produce the following artifacts in order, each as a
+separate file under /testbed/.specify/ (create the directory if it does not exist):
+
+1. /testbed/.specify/spec.md — A specification of WHAT must be built and WHY.
+   Capture user-visible behavior, inputs, outputs, edge cases, and explicit acceptance criteria.
+   Do NOT discuss implementation, file layout, or libraries here.
+
+2. /testbed/.specify/plan.md — A technical plan for HOW to satisfy spec.md.
+   Identify the files to add or modify, the interfaces/signatures, the data flow, and the testing
+   approach. Call out risks and design alternatives you considered.
+
+3. /testbed/.specify/tasks.md — An ordered, atomic task list derived from plan.md.
+   Each task should be small (≈ one function or one file change), independently checkable, and
+   reference the spec.md acceptance criteria it advances.
+
+4. Implementation — Only after spec.md, plan.md, and tasks.md exist, work through tasks.md in order
+   and modify the repository under /testbed/ to satisfy the specification.
+
+Constraints:
+- Always write the three .specify/*.md files before editing any source file.
+- Keep the .specify/*.md files in the working tree (do not delete them); they will be included in
+  the final patch and serve as evidence of the spec-driven workflow.
+- If during implementation you discover the spec or plan is wrong, update the corresponding .md file
+  before changing code.
+
+The original task statement follows. Treat it as the source of truth for requirements.
+
+----- ORIGINAL TASK -----
+"""
+
+
+def _inject_spec_kit_preamble(problem_statement: str) -> str:
+    """Prepend the Spec-Kit-style workflow preamble to the task prompt."""
+    if not problem_statement:
+        return problem_statement
+    # Idempotent: avoid double-wrapping on resume / reruns.
+    if "----- ORIGINAL TASK -----" in problem_statement:
+        return problem_statement
+    return SPEC_KIT_PREAMBLE + problem_statement
+
+
 def _inject_white_box_note(problem_statement: str, test_file_path: str) -> str:
     """Append a white-box bullet under the **NOTE** bullet list (best-effort)."""
     if not problem_statement:
@@ -634,6 +677,8 @@ class InferenceRunner:
                     instruction = _inject_white_box_note(instruction, f2p_path)
             if getattr(self.config, "without_interface_descriptions", False):
                 instruction = _strip_interface_descriptions(instruction)
+            if getattr(self.config, "spec_mode", False):
+                instruction = _inject_spec_kit_preamble(instruction)
             agent_success = agent.run(
                 container,
                 instruction,
@@ -807,6 +852,7 @@ class InferenceRunner:
             level=self.config.level,
             without_interface_descriptions=self.config.without_interface_descriptions,
             white_box=getattr(self.config, "white_box", False),
+            spec_mode=getattr(self.config, "spec_mode", False),
             force_native_tool_calling=getattr(self.config, "force_native_tool_calling", False),
             force_timeout=getattr(self.config, "force_timeout", False),
             api_key=self.config.api_key,
@@ -846,6 +892,8 @@ class InferenceRunner:
             self.console.print("[white]Prompt:[/] [yellow]without interface descriptions[/]")
         if getattr(self.config, "white_box", False):
             self.console.print("[white]Prompt:[/] [yellow]white-box (tests visible)[/]")
+        if getattr(self.config, "spec_mode", False):
+            self.console.print("[white]Prompt:[/] [yellow]spec-driven (Spec-Kit-style preamble)[/]")
         if self.config.agent == "openhands":
             if getattr(self.config, "force_native_tool_calling", False):
                 self.console.print("[white]Tool calling:[/] [yellow]forced native[/]")
@@ -1245,6 +1293,17 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--spec-mode",
+        action="store_true",
+        help=(
+            "Enable spec-driven mode: prepend a Spec-Kit-style preamble that asks the agent to "
+            "produce spec.md, plan.md, and tasks.md under /testbed/.specify/ before implementing. "
+            "Used to compare vanilla vs spec-driven prompting on the same agent/model. "
+            "In --resume mode, this flag is ignored and the value from run_metadata.json is used."
+        ),
+    )
+
+    parser.add_argument(
         "--native-tool-calling",
         action="store_true",
         help=(
@@ -1360,6 +1419,10 @@ def load_resume_config(resume_dir: Path, args: argparse.Namespace) -> Tuple[Infe
         warnings.append(
             "--white (using 'white_box' from metadata)"
         )
+    if getattr(args, "spec_mode", False):
+        warnings.append(
+            "--spec-mode (using 'spec_mode' from metadata)"
+        )
     if getattr(args, "native_tool_calling", False):
         warnings.append(
             "--native-tool-calling (using 'force_native_tool_calling' from metadata)"
@@ -1427,6 +1490,9 @@ def load_resume_config(resume_dir: Path, args: argparse.Namespace) -> Tuple[Infe
     # Determine white_box: always use metadata in resume mode.
     white_box = bool(metadata.get("white_box"))
 
+    # Determine spec_mode: always use metadata in resume mode.
+    spec_mode = bool(metadata.get("spec_mode"))
+
     # Determine force_native_tool_calling: always use metadata in resume mode.
     force_native_tool_calling = bool(metadata.get("force_native_tool_calling"))
 
@@ -1456,6 +1522,7 @@ def load_resume_config(resume_dir: Path, args: argparse.Namespace) -> Tuple[Infe
         split=metadata.get('split'),  # Use split from metadata
         without_interface_descriptions=without_interface_descriptions,
         white_box=white_box,
+        spec_mode=spec_mode,
         force_native_tool_calling=force_native_tool_calling,
         force_timeout=force_timeout,
         force_rerun_ids=_load_force_rerun_ids(getattr(args, "force_rerun", None)),
@@ -1521,6 +1588,7 @@ def main():
             split=args.split if args.split is not None else "full",
             without_interface_descriptions=bool(getattr(args, "without", False)),
             white_box=bool(getattr(args, "white", False)),
+            spec_mode=bool(getattr(args, "spec_mode", False)),
             force_native_tool_calling=bool(getattr(args, "native_tool_calling", False)),
             force_timeout=bool(getattr(args, "force_timeout", False)),
             force_rerun_ids=_load_force_rerun_ids(getattr(args, "force_rerun", None)),

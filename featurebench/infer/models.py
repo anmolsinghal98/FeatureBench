@@ -168,6 +168,9 @@ class InferConfig:
     without_interface_descriptions: bool = False
     # If True, enable white-box mode: agent can see FAIL_TO_PASS test file(s).
     white_box: bool = False
+    # If True, prepend a Spec-Kit-style preamble to the task prompt so the agent
+    # produces spec → plan → tasks → implementation in one shot.
+    spec_mode: bool = False
     # If True, force OpenHands to use native tool calling (LLM_NATIVE_TOOL_CALLING=true).
     force_native_tool_calling: bool = False
     # Optional task IDs to force rerun even if completed.
@@ -198,6 +201,7 @@ class InferConfig:
             "split": self.split,
             "without_interface_descriptions": self.without_interface_descriptions,
             "white_box": self.white_box,
+            "spec_mode": self.spec_mode,
             "force_native_tool_calling": self.force_native_tool_calling,
             "force_rerun_ids": self.force_rerun_ids,
             "force_timeout": self.force_timeout,
@@ -259,6 +263,7 @@ class RunMetadata:
     level: Optional[List[int]] = None  # Level filter (1, 2)
     without_interface_descriptions: bool = False
     white_box: bool = False
+    spec_mode: bool = False
     force_native_tool_calling: bool = False
     force_timeout: bool = False
     api_key: Optional[str] = None
@@ -288,6 +293,7 @@ class RunMetadata:
             "level": self.level,
             "without_interface_descriptions": self.without_interface_descriptions,
             "white_box": self.white_box,
+            "spec_mode": self.spec_mode,
             "force_native_tool_calling": self.force_native_tool_calling,
             "force_timeout": self.force_timeout,
             "api_key": self.api_key,
